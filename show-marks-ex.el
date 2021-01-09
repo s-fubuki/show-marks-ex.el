@@ -1,8 +1,8 @@
 ;;; show-marks-ex.el -*- coding: utf-8-emacs -*-
-;; Copyright (C) 2020 fubuki
+;; Copyright (C) 2020, 2021 fubuki
 
 ;; Author: fubuki@frill.org
-;; Version: @(#)$Revision: 1.1 $$Name:  $
+;; Version: @(#)$Revision: 1.2 $$Name:  $
 ;; Keywords: Editing
 
 ;; This program is free software: you can redistribute it and/or modify
@@ -104,6 +104,11 @@ integer Global mode & Display buffer name length."
                  (const :tag "Global mode" :value t))
   :group 'show-marks)
 
+(defcustom show-marks-short-buffer-name-pad ?>
+  "`show-marks-short-buffer-name' padding character."
+  :type 'character
+  :group 'show-marks)
+
 (defcustom show-marks-add-mark-ring '(global-mark-ring)
   "mark-ring symbol."
   :type  '(repeat :tag "mark-ring sym/func" symbol)
@@ -133,7 +138,7 @@ integer Global mode & Display buffer name length."
 
 (defcustom show-marks-bm-source nil
   "If non-nil, target `grobal-mark-ring' buffers.
-Otherwise all buffers."
+Otherwise all buffers. for function `show-marks-bm-mark-ring'."
   :type 'boolean
   :group 'show-marks)
 
@@ -184,7 +189,7 @@ Otherwise all buffers."
     (t
      :background "grey30" :foreground "Orange" :extend nil))
   "Jump key face."
-  :group 'show-marks)
+  :group 'show-marks-faces)
 
 (defvar show-marks-point-save nil)
 
@@ -333,30 +338,37 @@ Otherwise all buffers."
 (defun mark-mode-jump ()
   (interactive)
   (let ((ch  ?0)
-        (ov (mark-mode-jump-make-disp))
-        dsp)
+        (ov (mark-mode-jump-make-disp)))
     (dolist (a ov)
-      (setq dsp (propertize (char-to-string ch) 'face 'mark-mode-jump-key-face))
-      (when (eq ?\n (char-after (overlay-start a)))
-        (setq dsp (concat dsp "\n")))
-      (overlay-put a 'display dsp)
-      (and ch
-           (define-key show-marks-ex-jump-mode-map
-             (kbd (char-to-string ch))
-             `(lambda ()
-                (interactive)
-                (show-marks-ex-jump-mode -1)
-                (mark-mode-goto-and-quit ,(overlay-start a)))))
-      (setq ch (mark-mode-next-ch ch)))
-    ;; A gimmick that apparently avoids the text property face
-    ;; at the end of the line leaking to the edge of the screen for some reason.
-    (setq face-remapping-alist
-          (append 
-           '((show-marks-match . show-marks-mask)
-             (show-marks-match-other . show-marks-mask))
-           face-remapping-alist))
-    (message "Jump mode active.")
-    (show-marks-ex-jump-mode 1)))
+      (let ((pc  (char-after (overlay-start a)))
+            (dsp (propertize (string ch) 'face 'mark-mode-jump-key-face))
+            (pad (propertize " " 'face 'mark-mode-jump-key-face)))
+        (setq dsp
+               (cond
+                ((eq ?\n pc)
+                 (concat dsp "\n"))
+                ((eq 2 (string-width (string pc)))
+                 (concat dsp pad))
+                (t
+                 dsp)))
+        (overlay-put a 'display dsp)
+        (and ch
+             (define-key show-marks-ex-jump-mode-map
+               (kbd (char-to-string ch))
+               `(lambda ()
+                  (interactive)
+                  (show-marks-ex-jump-mode -1)
+                  (mark-mode-goto-and-quit ,(overlay-start a)))))
+        (setq ch (mark-mode-next-ch ch)))
+      ;; A gimmick that apparently avoids the text property face
+      ;; at the end of the line leaking to the edge of the screen for some reason.
+      (setq face-remapping-alist
+            (append 
+             '((show-marks-match . show-marks-mask)
+               (show-marks-match-other . show-marks-mask))
+             face-remapping-alist))
+      (message "Jump mode active.")
+      (show-marks-ex-jump-mode 1))))
 
 (defun mark-mode-jump-make-disp ()
   "Return overlay list."
@@ -388,10 +400,11 @@ Exclude blank start buffers."
   "Returns BUFF name with length of `show-marks-global'."
   (let* ((len (if (numberp show-marks-global) show-marks-global nil))
          (str (buffer-name buff))
-         (suffix (if (or (null suffix) (zerop len)) "" suffix)))
+         (suffix (if (or (null suffix) (zerop len)) "" suffix))
+         (pad show-marks-short-buffer-name-pad))
     (if (and (numberp len) (> len (length str)))
-        (setq str (concat str (make-string 32 32 ))))
-    (concat (substring str 0 len) suffix)))
+        (setq str (concat str (make-string 32 32))))
+    (concat (truncate-string-to-width str len 0 pad) suffix)))
 
 (defun show-marks-render-buffer (marks-lst)
   "Render MARKS-LST to current buffer.
@@ -440,28 +453,28 @@ MARK-LIST is \((lineNo . buffer) . mark-line-string)"
    (t
     (cons (car lst) (show-marks-flatten (cdr lst))))))
 
-(require 'bm)
-(defun show-marks-bm-mark-ring ()
-  "Return bm-bookmark a `mark-ring' form."
-  (let ((buff-list (if show-marks-bm-source
-                       (mapcar #'marker-buffer global-mark-ring)
-                     (buffer-list)))
-        bm result)
-    (dolist (buff buff-list result)
-      (if (string-match "\\` " (buffer-name buff))
-          nil
-        (setq result
-              (append
-               (save-current-buffer
-                 (set-buffer buff)
-                 (when (setq bm (delq nil (show-marks-flatten (bm-lists))))
-                   (dolist (a bm result)
-                     (setq result
-                           (cons
-                            (set-marker
-                             (make-marker) (overlay-start a) (overlay-buffer a))
-                            result)))))
-               result)))))) 
+(when (fboundp 'bm-lists)
+  (defun show-marks-bm-mark-ring ()
+    "Return bm-bookmark a `mark-ring' form."
+    (let ((buff-list (if show-marks-bm-source
+                         (mapcar #'marker-buffer global-mark-ring)
+                       (buffer-list)))
+          bm result)
+      (dolist (buff buff-list result)
+        (if (string-match "\\` " (buffer-name buff))
+            nil
+          (setq result
+                (append
+                 (save-current-buffer
+                   (set-buffer buff)
+                   (when (setq bm (delq nil (show-marks-flatten (bm-lists))))
+                     (dolist (a bm result)
+                       (setq result
+                             (cons
+                              (set-marker
+                               (make-marker) (overlay-start a) (overlay-buffer a))
+                              result)))))
+                 result)))))))
 
 (defun show-marks-make-list (marks)
   "Expand markring MARKS to \((lineNo . buffer) . mark-line-string).
