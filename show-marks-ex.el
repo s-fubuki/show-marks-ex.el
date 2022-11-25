@@ -1,8 +1,8 @@
 ;;; show-marks-ex.el -*- coding: utf-8-emacs -*-
-;; Copyright (C) 2020, 2021 fubuki
+;; Copyright (C) 2020, 2022 fubuki
 
-;; Author: fubuki@frill.org
-;; Version: @(#)$Revision: 1.2 $$Name:  $
+;; Author: fubukiATfrill.org
+;; Version: @(#)$Revision: 1.33 $$Name:  $
 ;; Keywords: Editing
 
 ;; This program is free software: you can redistribute it and/or modify
@@ -142,6 +142,11 @@ Otherwise all buffers. for function `show-marks-bm-mark-ring'."
   :type 'boolean
   :group 'show-marks)
 
+(defcustom mark-mode-switch-to-buffer #'switch-to-buffer
+  "`mark-mode-goto-and-quit' Buffer change function."
+  :type 'function
+  :group 'show-marks)
+
 (defgroup show-marks-faces nil
   "show mark faces."
   :group 'show-marks
@@ -209,7 +214,7 @@ Otherwise all buffers. for function `show-marks-bm-mark-ring'."
       (mark-mode-next-mark-ex)
       (setq mk (get-text-property pos 'marker)))
     (delete-window)
-    (pop-to-buffer (marker-buffer mk))
+    (funcall mark-mode-switch-to-buffer (marker-buffer mk))
     (goto-char mk)
     (setq mark-ring (cons mk (delete mk mark-ring)))))
 
@@ -273,7 +278,9 @@ Otherwise all buffers. for function `show-marks-bm-mark-ring'."
     (push-mark)
     (funcall org)
     (set (make-local-variable 'face-remapping-alist)
-         '((highlight . show-marks-highlight)))
+         (append
+          '((highlight . show-marks-highlight))
+          face-remapping-alist))
     (when show-marks-exchange (forward-line))
     (mark-mode-next-mark-ex)))
 
@@ -281,6 +288,8 @@ Otherwise all buffers. for function `show-marks-bm-mark-ring'."
   "Functuon for `mark-mode-hook'."
   (show-marks-ex-minor-mode 1)
   (setq truncate-lines show-marks-truncate-lines))
+
+(defvar mark-mode-current-face nil)
 
 (defun mark-mode-next-mark-ex ()
   "Move to next mark in *mark* buffer, wrapping if necessary."
@@ -291,6 +300,7 @@ Otherwise all buffers. for function `show-marks-bm-mark-ring'."
     (setq pos (next-single-property-change pos 'marker))
     (unless pos
       (setq pos (next-single-property-change (point-min) 'marker)))
+    ;; (setq mark-mode-current-face (get-text-property (point) 'face))
     (prog1 pos (goto-char pos))))
 
 (defun mark-mode-prev-mark-ex ()
@@ -494,8 +504,8 @@ If `show-marks-global' is non-nil, add `global-mark-ring' for processing."
           (setq ln (line-number-at-pos mk))
           (save-excursion
             (goto-char mk)
-            (setq beg (point-at-bol)
-                  end (point-at-eol))
+            (setq beg (line-beginning-position)
+                  end (line-end-position))
             (setq pt  (- mk beg))
             (setq tmp (assoc (cons ln buff) stack))
             (if tmp
@@ -519,6 +529,11 @@ If `show-marks-global' is non-nil, add `global-mark-ring' for processing."
 (advice-add 'mark-mode-goto :override 'mark-mode-goto-ex)
 
 (add-hook 'mark-mode-hook #'init-mark-mode)
+
+;; (obsolete read-only-mode "24.3") toggle-read-only 29 で完全消滅.
+(when (and (<= 29 emacs-major-version)
+           (not (fboundp 'toggle-read-only)))
+  (defalias 'toggle-read-only #'read-only-mode))
 
 (provide 'show-marks-ex)
 ;; fin.
